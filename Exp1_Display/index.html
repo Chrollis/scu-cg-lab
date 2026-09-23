@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>WebGPU Hello World</title>
+<link rel="stylesheet" href="./css/style.css">
+</head>
+<body>
+
+<canvas id="cv">Your browser does not support the canvas tag.</canvas>
+<div id="msg"></div>
+<div id="controls">
+  <label for="side">ln(side)</label>
+  <input id="side" type="range" min="5" max="10" step="1" value="5">
+  <output id="sideValue" for="side">200</output>
+
+  <label for="depth">depth</label>
+  <input id="depth" type="range" min="0" max="10" step="1" value="2">
+  <output id="depthValue" for="depth">3</output>
+
+  <label for="samples">samples</label>
+  <input id="samples" type="range" min="1" max="4" step="1" value="2">
+  <output id="samplesValue" for="samples">2</output>
+</div>
+
+<!--
+  Classic scripts, loaded in dependency order.
+
+  Why not `<script type="module" src="...">`? Under file:// an external module
+  has to be fetched, and the page origin is null, so the browser blocks it.
+  Classic scripts are read straight off disk instead, which is why HW1's
+  Common/*.js files still load fine today.
+
+  A top-level `const` or `class` in a classic script is visible to the next one,
+  which gives module-like sharing without the loading restrictions. It does not
+  become window.SHADERS -- only `var` would do that.
+-->
+<script src="./js/mat4.js"></script>
+<script src="./js/color.js"></script>
+<script src="./js/wgsl.js"></script>
+<script src="./js/geometry.js"></script>
+<script src="./js/scene.js"></script>
+<script src="./js/renderer.js"></script>
+<script src="./js/main.js"></script>
+
+<!--
+  The entry point is an inline module, which buys two things a classic script
+  cannot: top-level await, and strict mode by default. Inline modules are not
+  fetched, so they keep working under file://.
+-->
+<script type="module">
+  const canvas = document.getElementById('cv');
+  const messageElement = document.getElementById('msg');
+
+  try {
+    const sideSlider = document.getElementById('side');
+    const sideValue = document.getElementById('sideValue');
+    const depthSlider = document.getElementById('depth');
+    const depthValue = document.getElementById('depthValue');
+    const samplesSlider = document.getElementById('samples');
+    const samplesValue = document.getElementById('samplesValue');
+
+    const { params, redraw, recolor, setDepth, setSidePx, setSamples } =
+      await startApp({
+        canvas,
+        messageElement,
+        shaderCode: SHADERS.centered,
+        geometry: GEOMETRY.makeSquare(),
+        uniformByteLength: SceneParams.byteLength,
+      });
+
+    // Every slider only writes uniforms: nothing is reallocated and no pipeline
+    // is rebuilt, which is what keeps dragging smooth.
+    const bindSlider = (element, output, apply) => {
+      const update = () => {
+        output.textContent = element.value;
+        apply(Number(element.value));
+        redraw();
+      };
+      element.addEventListener('input', update);
+      update();
+    };
+
+    bindSlider(sideSlider, sideValue, setSidePx);
+    bindSlider(depthSlider, depthValue, setDepth);
+    bindSlider(samplesSlider, samplesValue, setSamples);
+
+    // Clicking recentres the square on the pointer and rotates the palette.
+    //
+    // No aspect correction here: the centre is added after the projection, so
+    // it lives in the same clip space these two lines produce.
+    canvas.addEventListener('mousedown', (event) => {
+      const rect = canvas.getBoundingClientRect();
+
+      // Screen pixels relative to the canvas, origin at its top-left.
+      const px = event.clientX - rect.left;
+      const py = event.clientY - rect.top;
+
+      // Clip space runs -1..1 with the origin at the centre, and Y points up.
+      // That Y flip is the step people forget: without it the square jumps to
+      // the mirrored position and the click feels inverted.
+      const x = (px / rect.width) * 2 - 1;
+      const y = 1 - (py / rect.height) * 2;
+
+      params.setCenter(x, y);
+      recolor();
+      redraw();
+    });
+  } catch (error) {
+    // Everything reachable from a synchronous JS failure has a stack trace.
+    // That is why this path uses error.stack while the WebGPU error listener
+    // in renderer.js cannot.
+    const text = String((error && error.stack) || error);
+    messageElement.textContent = text;
+    console.error(error);
+  }
+</script>
+
+</body>
+</html>
